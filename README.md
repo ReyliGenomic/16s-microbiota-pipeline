@@ -43,7 +43,7 @@ Raw FASTQ (paired-end)
 
 ---
 
-## 🛠️ Requirements
+## Requirements
 
 ### Software
 - Docker (for fastp and QIIME 2)
@@ -77,7 +77,7 @@ docker pull quay.io/qiime2/amplicon:2025.10
 
 ---
 
-## 📁 Repository Structure
+## Repository Structure
 
 ```
 16s-microbiota-pipeline/
@@ -100,7 +100,7 @@ docker pull quay.io/qiime2/amplicon:2025.10
 
 ---
 
-## 🚀 Usage
+## Usage
 
 ### Step 1 — Adapter Removal
 
@@ -285,7 +285,7 @@ Taxonomic level: **Genus**
 
 ---
 
-## 📊 Methods Summary
+## Methods Summary
 
 | Step | Tool | Version / Notes |
 |------|------|-----------------|
@@ -301,7 +301,7 @@ Taxonomic level: **Genus**
 
 ---
 
-## 📖 References
+## References
 
 - Kim, K.S., Noh, J., Kim, BS. et al. (2025). Refining microbiome diversity analysis by concatenating and integrating dual 16S rRNA amplicon reads. npj Biofilms Microbiomes 11, 57.
 - Callahan, B.J. et al. (2016). DADA2: High-resolution sample inference from Illumina amplicon data. *Nature Methods*, 13, 581–583.
@@ -312,7 +312,7 @@ Taxonomic level: **Genus**
 
 ---
 
-## 👤 Author
+## Author
 
 **Reyli Sanchez**  
 Intern research — Statistical Genomics and Population Health Laboratory, Laboratorio Internacional de Investigación sobre el Genoma Humano, UNAM  
