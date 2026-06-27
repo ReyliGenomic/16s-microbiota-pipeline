@@ -316,4 +316,4 @@ Taxonomic level: **Genus**
 
 **Reyli Sanchez**  
 Intern research — Statistical Genomics and Population Health Laboratory, Laboratorio Internacional de Investigación sobre el Genoma Humano, UNAM  
-LinkedIn · GitHub
+[LinkedIn](www.linkedin.com/in/reyli-sanchez-3b932a219) · [GitHub](https://github.com/ReyliGenomic)
