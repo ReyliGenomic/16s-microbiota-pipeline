@@ -1,0 +1,827 @@
+---
+title: "Conqur-batch"
+output: html_document
+date: "2025-12-15"
+
+---
+#Corrección de efecto de lote
+```{r}
+setwd("/home/batch_correction")
+list.files()
+
+
+library(qiime2R)
+library(phyloseq)
+library(microeco)
+library(ConQuR)
+library(doParallel)
+library(ggplot2)
+```
+
+
+```{r}
+# ==============================================================================
+# PASO 1: IMPORTAR DATOS DESDE QIIME 2
+# ==============================================================================
+# Asegúrate de usar la tabla YA FILTRADA (sin mitocondrias/cloroplastos)
+physeq <- qza_to_phyloseq(
+  features = "concatenated_method/merge_data/final_table_clean.qza", 
+  #tree = "manifest_files/manifest_batch/phylogeny/rooted-tree.qza",
+  taxonomy = "concatenated_method/merge_data/taxonomy.qza",
+  metadata = "metadata/sample-metadata.tsv"
+)
+
+# Verificamos que se cargó bien
+print(physeq)
+
+# ==============================================================================
+# PASO 2: PREPARAR DATOS PARA CONQUR
+# ==============================================================================
+# ConQuR necesita una matriz numérica y dataframes separados
+
+# A. Extraer Tabla de OTUs y transponerla (Filas=Muestras, Columnas=Taxones)
+
+otu_mat <- as(otu_table(physeq), "matrix")
+if(taxa_are_rows(physeq)){
+  otu_mat <- t(otu_mat)
+}
+
+# B. Extraer Metadatos
+meta_df <- as(sample_data(physeq), "data.frame")
+
+batchid <- factor(meta_df$Lot)
+
+covar <- meta_df[, c( "Sx", "agey","BMI", "glu", "SBP", "chol", "Class..SBP_CTRL")]
+
+Plot_PCoA(TAX = otu_mat, factor = batchid, main = "Before Correction, Bray-Curtis")
+
+
+taxa_corrected1 <- ConQuR(
+  tax_tab = otu_mat,
+  batchid = batchid,
+  covariates = covar,
+  batch_ref = "3"   # si "3" es tu lote de referencia
+)
+
+png("concatenated_method/batch_correction/PCoA_comparacion.png", width = 2000, height = 1200, res = 200)
+# Divide en 1 filas y 1 columnas 
+par(mfrow = c(1, 2))
+
+# Haz tus gráficas
+Plot_PCoA(TAX = otu_mat, factor = batchid, main = "Before Correction, Bray-Curtis")
+Plot_PCoA(TAX = taxa_corrected1, factor = batchid, main = "ConQuR (Default), Bray-Curtis")
+
+dev.off()
+
+
+```
+
+
+```{r}
+taxa_corrected2 <- ConQuR(
+  tax_tab = otu_mat,
+  batchid = batchid,
+  covariates = covar,
+  batch_ref = "5"   # si "5" es tu lote de referencia
+)
+options(warn=-1)
+
+taxa_corrected1[1:5, 1:5]
+
+#Graficamos nuestros datos
+png("concatenated_method/batch_correction/PCoA_comparacion_lote5.png", width = 2000, height = 1200, res = 200)
+
+# Divide en 2 filas y 3 columnas (como querías)
+par(mfrow = c(1, 2))
+
+# Haz tus gráficas Bray.Curtis distance
+Plot_PCoA(TAX = otu_mat, factor = batchid, main = "Before Correction, Bray-Curtis")
+Plot_PCoA(TAX = taxa_corrected2, factor = batchid, main = "ConQuR (Default), Bray-Curtis")
+
+
+
+dev.off()
+
+#Aitchison distance
+png("concatenated_method/batch_correction/PCoA_comparison_Aitchison.png", width = 2000, height = 1200, res = 200)
+par(mfrow = c(1, 2))
+Plot_PCoA(TAX=otu_mat, factor = batchid, dissimilarity = "Aitch", main = "Before Correction, Aitchison")
+Plot_PCoA(TAX=taxa_corrected2, factor = batchid, dissimilarity = "Aitch", main = "ConQuR (Default), Aitchison")
+dev.off()
+
+```
+
+
+```{r}
+#Guardamos nuestro datos
+output_folder <- "/home/batch_correction/concatenated_method/amplicon_microtable"
+
+
+write.table(taxa_corrected2, 
+            file = file.path(output_folder, "feature_table_corrected_L5.tsv"), 
+            sep = "\t", 
+            quote = FALSE, 
+            col.names = NA)
+
+saveRDS(taxa_corrected1, file = file.path(output_folder, "feature_table_corrected_L3.rds"))
+saveRDS(taxa_corrected2, file = file.path(output_folder, "feature_table_corrected_L5.rds"))
+
+
+savehistory(file = file.path(output_folder, "script_historial_sesion.R"))
+
+
+```
+
+```{r}
+#Ruta de guardado de imagenes
+ruta_final <- "/home/batch_correction/concatenated_method/batch_correction/"
+
+# 3. Guardar la imagen usando file.path para unir la ruta y el nombre
+# file.path se encarga de poner las barras / correctamente
+archivo_salida <- file.path(ruta_final, "PCoA_comparison_Aitchison_FINAL.png")
+
+
+graphics.off() # Limpiar por si acaso
+
+  png(filename = archivo_salida, width = 2000, height = 1200, res = 200)
+
+  par(mfrow = c(1, 2))
+  
+  # Tus gráficas (Asegúrate de que 'taxa_corrected1' es la del Lote 5)
+  Plot_PCoA(TAX = otu_mat, factor = batchid, dissimilarity = "Aitch", 
+            main = "Before Correction")
+            
+  Plot_PCoA(TAX = taxa_corrected2, factor = batchid, dissimilarity = "Aitch", 
+            main = "ConQuR Corrected")
+
+  dev.off()
+```
+Analisis de permanova
+
+```{r}
+library(vegan)
+
+dist_bc <- vegdist(taxa_corrected2, method = "bray")
+
+adonis2(
+  dist_bc ~ batchid + agey + Sx + BMI + glu + SBP + chol + Class..SBP_CTRL,
+  data = meta_df,
+  permutations = 999,
+  by = "margin"
+)
+
+```
+
+Transformación de clr para analizar la distancia bray curtis
+
+```{r}
+library(vegan)
+library(compositions)
+
+# CLR transform
+otu_clr <- clr(taxa_corrected2 + 1)
+
+dist_ait <- dist(otu_clr)
+
+adonis2(
+  dist_ait ~ batchid + agey + Sx + BMI + glu + SBP + chol + Class..SBP_CTRL,
+  data = meta_df,
+  permutations = 999,
+  by = "margin"
+)
+
+anova(betadisper(dist_ait, meta_df$Lot))
+
+bd <- betadisper(dist_ait, meta_df$Lot)
+plot(bd)
+
+#Permanova sin batch 
+adonis2(
+  dist_ait ~ agey + Sx + BMI + glu + SBP + chol + Class..SBP_CTRL,
+  data = meta_df,
+  permutations = 999,
+  by = "margin"
+)
+
+
+
+```
+
+
+#Importación de datos
+
+```{r}
+#Cargamos nuestras librerías
+library(microeco) # Framework principal para analisis downstream de microbiomas:
+library(magrittr) # Proporciona el operador pipe (%>% y %<>%),
+library(stringr) # Manipulación robusta de strings:
+library(readr) # Lectura eficiente y reproducible de archivos de texto
+library(metagenomeSeq) # Métodos estadísticos para datos de microbiomas composicionales,
+library(edgeR)# Paquete de RNA-seq usado en microbiomas para análisis diferencial basado en modelos binomiales negativos,
+library(file2meco) # for data importing
+library(ape)
+
+
+#Importación de datos 
+tax_qza <- read_qza("/home/batch_correction/concatenated_method/merge_data/taxonomy.qza")
+tax_df <- tax_qza$data
+metadata = read_tsv("/home/batch_correction/metadata/sample-metadata.tsv")
+metadata <- metadata[-1, ]
+metadata <- as.data.frame(metadata)
+phylo_three <- read_qza("/home/batch_correction/concatenated_method/merge_data/phylogeny/rooted-tree.qza")$data
+asv_table <- readRDS("/home/batch_correction/concatenated_method/amplicon_microtable/feature_table_corrected_L5.rds")
+rep_seqs <- read_qza("/home/batch_correction/concatenated_method/merge_data/representative_sequences_filtered.qza")
+
+asv_table <- t(asv_table)
+asv_table <- as.data.frame(asv_table)
+
+
+#Extrae los nombres de cada taxon y lo clasifica por nivel
+extract_rank <- function(x, rank) {
+  y <- str_extract(x, paste0(rank, "__[^;]*"))
+  ifelse(is.na(y), paste0(rank, "__"), y)
+}
+
+tax_fixed <- data.frame(
+  Kingdom = extract_rank(tax_df$Taxon, "d"),
+  Phylum  = extract_rank(tax_df$Taxon, "p"),
+  Class   = extract_rank(tax_df$Taxon, "c"),
+  Order   = extract_rank(tax_df$Taxon, "o"),
+  Family  = extract_rank(tax_df$Taxon, "f"),
+  Genus   = extract_rank(tax_df$Taxon, "g"),
+  Species = extract_rank(tax_df$Taxon, "s"),
+  row.names = tax_df$Feature.ID,
+  stringsAsFactors = FALSE
+)
+
+# make the taxonomic information unified, very important
+
+tax_fixed %<>% tidy_taxonomy
+
+meco <- microtable$new(
+  otu_table  = asv_table,
+  sample_table = metadata,
+  tax_table = tax_fixed,
+)
+# use ASV as the prefix to generate new feature names instead of raw character strings
+meco$rename_taxa(newname_prefix = "ASV_")
+
+#Rename columns
+colnames(meco$sample_table)[colnames(meco$sample_table) == "Class  SBP_CTRL"] <- "Grupo"
+colnames(meco$sample_table)[colnames(meco$sample_table) == "Class SBP NT"] <- "Normotenso"
+
+# 1. Corregir el cambio de factor (agregué el ')' al final)
+meco$sample_table$Sx <- factor(meco$sample_table$Sx, 
+                               levels = c(1, 2), 
+                               labels = c("M", "F"))  # <--- FALTABA ESTE PARÉNTESIS
+#Sequencing depth
+meco$sample_sums() %>% range
+# Mínimo y máximo de lecturas  9186 62314
+
+
+
+```
+
+
+Normalization
+```{r}
+# fix random seed to ensure the reproducibility of the analysis
+set.seed(123)
+
+output_dir <- "/home/batch_correction/concatenated_method/amplicon_microtable"
+# use clone function to copy the object completely
+amplicon_16S_microtable <- clone(meco)
+save(amplicon_16S_microtable, file = file.path(output_dir, "amplicon_16S_microtable.RData"), compress = TRUE)
+
+
+# use trans_norm class to perform all the normalization methods
+tmp <- trans_norm$new(dataset = meco)
+
+
+# Rarefaction
+# the minimum of sample sequences is over 20000
+meco$sample_sums() %>% range
+amplicon_16S_microtable_rarefy <- tmp$norm(method = "rarefy", sample.size = 10000)
+amplicon_16S_microtable_rarefy_5000 <- tmp$norm(method = "rarefy", sample.size = 5000)
+
+
+save(amplicon_16S_microtable_rarefy, file = file.path(output_dir, "amplicon_16S_microtable_rarefy.RData"), compress = TRUE)
+
+# CLR: Centered log-ratio normalization <ISBN:978-0-412-28060-3> <doi: 10.3389/fmicb.2017.02224>
+amplicon_16S_microtable_CLR <- tmp$norm(method = "CLR")
+save(amplicon_16S_microtable_CLR, file = file.path(output_dir, "amplicon_16S_microtable_CLR.RData"), compress = TRUE)
+
+# rclr: Robust centered log-ratio normalization <doi: doi:10.1128/msystems.00016-19>
+amplicon_16S_microtable_RCLR <- tmp$norm(method = "rclr")
+save(amplicon_16S_microtable_RCLR, file = file.path(output_dir, "amplicon_16S_microtable_RCLR.RData"), compress = TRUE)
+
+# GMPR: Geometric mean of pairwise ratios <doi: 10.7717/peerj.4600>
+amplicon_16S_microtable_GMPR <- tmp$norm(method = "GMPR")
+save(amplicon_16S_microtable_GMPR, file = file.path(output_dir, "amplicon_16S_microtable_GMPR.RData"), compress = TRUE)
+
+# CSS: Cumulative sum scaling normalization based on the metagenomeSeq package <doi:10.1038/nmeth.2658>
+amplicon_16S_microtable_CSS <- tmp$norm(method = "CSS")
+save(amplicon_16S_microtable_CSS, file = file.path(output_dir, "amplicon_16S_microtable_CSS.RData"), compress = TRUE)
+
+# TMM: Trimmed mean of M-values method based on the normLibSizes function of edgeR package <doi: 10.1186/gb-2010-11-3-r25>
+amplicon_16S_microtable_TMM <- tmp$norm(method = "TMM")
+save(amplicon_16S_microtable_TMM, file = file.path(output_dir, "amplicon_16S_microtable_TMM.RData"), compress = TRUE)
+
+# RLE: Relative log expression.
+amplicon_16S_microtable_RLE <- tmp$norm(method = "RLE")
+save(amplicon_16S_microtable_RLE, file = file.path(output_dir, "amplicon_16S_microtable_RLE.RData"), compress = TRUE)
+
+# TSS: Total sum scaling. Abundance is divided by the sequencing depth.
+amplicon_16S_microtable_TSS <- tmp$norm(method = "TSS")
+save(amplicon_16S_microtable_TSS, file = file.path(output_dir, "amplicon_16S_microtable_TSS.RData"), compress = TRUE)
+
+
+```
+
+
+```{r}
+## 
+## Perform core taxa analysis for each compartment
+## 
+
+
+######################################################
+# load packages
+library(microeco)
+library(magrittr)
+library(ggplot2)
+######################################################
+
+
+# create an output directory if it does not exist
+output_dir <- "/home/batch_correction/concatenated_method/coremicrobiome"
+
+
+# define core taxa: occurrence frequency 50%; mean relative abundance 0.05%
+freq <- 0.5
+abund <- 0.0005
+
+tmp_microtable <- clone(amplicon_16S_microtable_rarefy)
+
+# select core taxa for each compartment
+# If users need to use other column names in their own data, they can simply replace 'Compartment' with the other column names and 'Bulk soil' with the group information within it.
+S <- clone(meco)
+S$sample_table %<>% .[.$Grupo == "Controlado", ]
+S$tidy_dataset()
+S$filter_taxa(rel_abund = abund, freq = freq)
+
+RS <- clone(meco)
+RS$sample_table %<>% .[.$Grupo == "No controlado", ]
+RS$tidy_dataset()
+RS$filter_taxa(rel_abund = abund, freq = freq)
+
+# merge the core ASV names into a data.frame object and save it into a file
+res <- rbind(data.frame(Grupo = "S", ASV = S$taxa_names()), data.frame(Grupo = "RS", ASV = RS$taxa_names()))
+# write the data.frame object containing core ASV names in each compartment to the output directory
+write.csv(res, file.path(output_dir, "Coretaxa_calc_compartments.csv"))
+# Description of the result file: 
+#	The "`Class  SBP_CTRL`" column represents different groups, and the "ASV" column contains the names of core ASVs identified in each compartment.
+
+
+
+# also save each microtable object to local files with .RData format
+save(S, file = file.path(output_dir, "Coretaxa_Control.RData"), compress = TRUE)
+save(RS, file = file.path(output_dir, "Coretaxa_No_control.RData"), compress = TRUE)
+
+```
+
+Coretaxa intercection
+
+```{r}
+## 
+## use trans_venn class to analyze shared and unique core ASVs among compartments
+## 
+
+
+######################################################
+# load packages
+library(microeco)
+library(magrittr)
+library(ggplot2)
+library(aplot)
+library(cowplot)
+
+######################################################
+```
+
+```{r}
+# analyze differences across groups
+# generate a total core-taxa microtable object according to names
+meco$otu_table %<>% .[rownames(.) %in% c(S$taxa_names(), RS$taxa_names()),  ]
+meco$tidy_dataset()
+# merge samples into one for each compartment
+tmp_merge <- meco$merge_samples("Grupo")
+
+
+# analyze intersection set with trans_venn class
+trans_vennobj <- trans_venn$new(tmp_merge, ratio = "numratio", name_joint = "-")
+# remove the groups with 0
+trans_vennobj$data_summary %<>% .[.$Counts != 0, ]
+# output data_summary to file
+# The "Count" column represents the feature number in each set; The "Abundance" column denotes the percentage that each part constitutes of the total.
+write.csv(trans_vennobj$data_summary, file.path(output_dir, "Coretaxa_intersection.csv"))
+
+
+g1 <- trans_vennobj$plot_bar(sort_samples = FALSE, left_background_fill = "white")
+# use base_aspect_ratio to adjust the aspect ratio; base_height: height of the figure
+cowplot::save_plot(file.path(output_dir, "Coretaxa_intersection.png"), g1, base_aspect_ratio = 1.2, dpi = 300, base_height = 7)
+
+# transform intersection data to microtable object for other visualization
+trans_vennobj_mt <- trans_vennobj$trans_comm(use_frequency = TRUE)
+# calculate 'relative abundance'
+trans_vennobj_mt$cal_abund()
+# Each column represents the proportion of ASVs within a group that each genus accounts for relative to the total ASVs in that group.
+write.csv(trans_vennobj_mt$taxa_abund$Genus, file.path(output_dir, "Coretaxa_intersection_Genusratio.csv"))
+
+# Ordered elements in x-axis according to the number; necessary to make the order of groups in the following figure same with that in previous 'Coretaxa_intersection.png'
+tmp_x <- trans_vennobj$data_summary %>% tibble::rownames_to_column(.) %>% .[order(.$Counts, decreasing = TRUE), ] %>% .$rowname
+
+
+```
+
+
+Core visualization phylum
+
+```{r}
+library(ggh4x)
+
+# 2. Ahora sí puedes crear el objeto t1
+t1 <- trans_abund$new(dataset = meco, taxrank = "Genus", ntaxa = 15)
+
+
+# Modifica facet con el nombre de tu columna de grupo
+g1 <- t1$plot_bar(others_color = "grey70",
+                  facet = "Grupo",
+                  xtext_keep = FALSE,
+                  legend_text_italic = FALSE)
+
+g1
+g2 <- t1$plot_bar(others_color = "grey70",
+                  facet = "Normotenso",
+                  xtext_keep = FALSE,
+                  legend_text_italic = FALSE)
+g2
+
+
+t1$plot_bar(others_color = "grey70", facet = c("Normotenso", "Sx"), xtext_keep = FALSE, legend_text_italic = FALSE)
+
+
+# return a ggplot2 object
+
+```
+
+Core visualization genus
+
+```{r}
+library(ggalluvial)
+t2 <- trans_abund$new(dataset = meco, taxrank = "Genus", ntaxa = 10)
+
+t2$plot_bar(bar_full = TRUE, use_alluvium = TRUE, clustering = TRUE, xtext_angle = 30, xtext_size = 3, color_values = RColorBrewer::brewer.pal(8, "Set2"))
+#Phylum
+t2 <- trans_abund$new(dataset = meco, taxrank = "Phylum", ntaxa = 10, groupmean = "Normotenso")
+g3 <- t2$plot_bar(others_color = "grey70", legend_text_italic = FALSE)
+g3 + theme_classic() + theme(axis.title.y = element_text(size = 18))
+#Genus
+t3 <- trans_abund$new(dataset = meco, taxrank = "Genus", ntaxa = 15, groupmean = "Normotenso")
+g4 <- t3$plot_bar(others_color = "grey70", legend_text_italic = FALSE)
+g4 + theme_classic() + theme(axis.title.y = element_text(size = 18))
+
+t4 <- trans_abund$new(dataset = meco, taxrank = "Genus", ntaxa = 15)
+t4$plot_box(group = "Normotenso", xtext_angle = 30)
+
+
+t5 <- trans_abund$new(dataset = meco, taxrank = "Genus", ntaxa = 40)
+g5 <- t5$plot_heatmap(facet = "Normotenso", xtext_keep = FALSE, withmargin = TRUE, plot_breaks = c(0.01, 0.1, 1, 10))
+g5
+g5 + theme(axis.text.y = element_text(face = 'italic'))
+
+```
+
+```{r}
+library(ggpubr)
+library(ggradar)
+library(ggtern)
+
+t6 <- trans_abund$new(dataset = meco, taxrank = "Genus", ntaxa = 12, groupmean = "Normotenso")
+t6$plot_donut(label = TRUE)
+
+
+t7 <- trans_abund$new(dataset = meco, taxrank = "Genus", ntaxa = 8, groupmean = "Normotenso")
+t7$plot_radar(values.radar = c("0%", "25%", "50%"), grid.min = 0, grid.mid = 0.25, grid.max = 0.5)
+t7 <- trans_abund$new(dataset = meco, taxrank = "Genus", ntaxa = 8, groupmean = "Sx")
+t7$plot_radar(values.radar = c("0%", "25%", "50%"), grid.min = 0, grid.mid = 0.25, grid.max = 0.5)
+
+t7<- trans_abund$new(dataset = meco, taxrank = "Genus", ntaxa = 8, groupmean = "Normotenso")
+t7$plot_tern()
+```
+
+#Alpha diversity
+```{r}
+#
+## 
+## Calculate alpha diversity and save the data
+## 
+## 
+
+
+###########################
+# load packages
+library(microeco)
+library(magrittr)
+library(mecodev)
+library(FSA)
+library(rcompanion)
+library(agricolae)
+###########################
+
+output_dir <- "/home/batch_correction/concatenated_method/alpha_diversity"
+
+
+# Tabla rarefaccionada a 10000 de profundidad amplicon_16S_microtable_rarefy
+#1 samples are removed because of fewer reads than input sample.size ...
+# 4 features are removed because they are no longer present in any sample after random subsampling ...
+# 4 taxa with 0 abundance are removed from the otu_table ...
+
+#rarefaction curve based on the Shannon-Weiver diversity
+# use trans_rarefy class in mecodev package
+tmp <- trans_rarefy$new(meco, alphadiv = c("Shannon"), depth = c(0, 10, 50, 500, 1000, 2000, 4000, 6000, 10000, 15000, 20000, 25000, 30000))
+# show_samplename: add the sample labels; For the colors of different groups, please use color parameter, such as: color = "Group"
+g1 <- tmp$plot_rarefy(show_samplename = TRUE, color_values = rep("grey50", 100), show_legend = FALSE)
+g1
+
+cowplot::save_plot(file.path(output_dir, "AlphaDiv_Rarefactioncurve_Shannon.png"), g1, base_aspect_ratio = 1.4, dpi = 300, base_height = 5)
+
+amplicon_16S_microtable_rarefy_5000$cal_alphadiv()
+
+write.csv(amplicon_16S_microtable_rarefy_5000$alpha_diversity, file.path(output_dir, "AlphaDiv_metrics_5000.csv"))
+
+
+t2 <- trans_alpha$new(dataset = amplicon_16S_microtable_rarefy_5000, group = "Grupo")
+
+head(t2$data_stat)
+
+t2$cal_diff(method = "KW")
+# return t1$res_diff
+head(t2$res_diff)
+
+t3 <- trans_alpha$new(dataset = amplicon_16S_microtable_rarefy_5000, group = "Normotenso")
+
+t3$cal_diff(method = "KW_dunn")
+# return t1$res_diff
+head(t3$res_diff)
+
+t3$cal_diff(method = "anova")
+
+t3$plot_alpha(measure = "Chao1", y_increase = 0.3)
+t3$plot_alpha(measure = "Chao1", y_increase = 0.1)
+# add_sig_text_size: letter size adjustment
+t3$plot_alpha(measure = "Chao1", add_sig_text_size = 6, add = "jitter", order_x_mean = TRUE)
+
+
+measure <- "Shannon"
+# Prueba estadística (Wilcoxon)
+t3$cal_diff(
+  method = "wilcox",
+  measure = measure
+)
+
+# Guardar resultados
+write.csv(
+  tmp$res_diff,
+  file.path(output_dir, "AlphaDiv_ClassSBPCTRL_wilcox.csv"),
+  row.names = FALSE
+)
+
+g1 <- t3$plot_alpha(
+  measure = measure
+)
+
+g1
+
+cowplot::save_plot(
+  file.path(output_dir, "AlphaDiv_ClassSBPCTRL_wilcox_boxplot.png"),
+  g1,
+  base_aspect_ratio = 1.2,
+  dpi = 300,
+  base_height = 6
+)
+
+g2 <- t3$plot_alpha(
+  measure = measure,
+  plot_type = "errorbar",
+  add_line = TRUE,
+  line_type = 2
+)
+g2
+
+cowplot::save_plot(
+  file.path(output_dir, "AlphaDiv_ClassSBPCTRL_wilcox_errorbar_line.png"),
+  g2,
+  base_aspect_ratio = 1.2,
+  dpi = 300,
+  base_height = 6
+)
+
+tmp <- trans_alpha$new(
+  dataset = amplicon_16S_microtable_rarefy_5000,
+  group = "Normotenso",
+  by_group = "Sx"
+)
+
+tmp$plot_alpha(measure = measure, y_increase = 0.05)
+
+
+```
+
+Modelo lineal Heatmap
+
+```{r}
+
+tmp <- trans_alpha$new(dataset = amplicon_16S_microtable_rarefy_5000)
+
+tmp$cal_diff(
+  method = "lm",
+  measure = "Shannon",
+  formula = "Normotenso + Sx"
+)
+
+tmp$res_diff %<>% .[.$Factors != "(Intercept)", ]
+
+tmp$res_diff$Factors %<>% gsub(
+  "NormotensoControl",
+  "SBP Control: Controlado",
+  .
+)
+
+tmp$res_diff$Factors %<>% gsub(
+  "NormotensoNo_controlado",
+  "SBP Control: No controlado",
+  .
+)
+
+tmp$res_diff$Factors %<>% gsub(
+  "NormotensoNormotenso",
+  "SBP Control: Normotenso",
+  .
+)
+
+tmp$res_diff$Factors %<>% gsub(
+  "SxM",
+  "Sex: Male",
+  .
+)
+tmp$res_diff$Factors %<>% gsub(
+  "SxF",
+  "Sex: Female",
+  .
+)
+
+
+g1 <- tmp$plot_alpha(heatmap_cell = "Estimate", heatmap_lab_fill = "Coef", xtext_angle = 50, 
+	text_x_order = c( 
+	  "SBP Control: Controlado",
+    "SBP Control: No controlado",
+    "SBP Control: Normotenso",
+    "Sex: Male",
+    "Sex: Female",
+    "BMI",
+    "Age")) + 
+	theme(legend.position = "left")
+
+
+g1
+
+# Guardar figura
+cowplot::save_plot(
+  file.path(output_dir, "AlphaDiv_Shannon_lm_heatmap.png"),
+  g1,
+  base_aspect_ratio = 1.6,
+  dpi = 300,
+  base_height = 7
+)
+
+```
+
+#Beta diversidad
+
+```{r}
+# select samples of control soil from raw data
+tmp_microtable_control <- clone(meco)
+tmp_microtable_control$sample_table %<>% .[.$Normotenso == "Controlado", ]
+tmp_microtable_control$tidy_dataset()
+
+# select samples of control soil from rarefied data
+tmp_microtable_rarefy_control <- clone(amplicon_16S_microtable_rarefy_5000)
+tmp_microtable_rarefy_control$sample_table %<>% .[.$Normotenso == "Controlado", ]
+tmp_microtable_rarefy_control$tidy_dataset()
+```
+
+```{r}
+output_dir <- "/home/batch_correction/concatenated_method/beta_diversity"
+
+# create trans_beta object
+# For PCoA and NMDS, measure parameter must be provided.
+# measure parameter should be either one of names(mt_rarefied$beta_diversity) or a customized symmetric matrix
+# t1 <- trans_beta$new(dataset = amplicon_16S_microtable_rarefy, group = "Normotenso", measure = "bray")
+
+amplicon_16S_microtable_rarefy_5000$cal_betadiv(
+  measure = "bray"
+)
+
+amplicon_16S_microtable_CLR$cal_betadiv(
+  measure = "aitchison"
+)
+
+t1 <- trans_beta$new(
+  dataset = amplicon_16S_microtable_rarefy_5000,
+  group = "Normotenso",
+  measure = "bray"
+)
+
+t1$cal_ordination(method = "PCoA")
+# t1$res_ordination is the ordination result list
+class(t1$res_ordination)
+
+t1$plot_ordination(plot_color = "Normotenso", plot_shape = "Sx", plot_type = c("point", "ellipse"))
+
+t1$plot_ordination(plot_color = "Normotenso", plot_type = "point")
+
+t1$plot_ordination(plot_color = "Normotenso", point_size = 5, point_alpha = .2, plot_type = c("point", "ellipse"), ellipse_chull_fill = FALSE)
+
+t1$plot_ordination(plot_color = "Normotenso", plot_shape = "Normotenso", plot_type = c("point", "centroid"))
+
+t1$plot_ordination(plot_color = "Normotenso", plot_shape = "Normotenso", plot_type = c("point", "ellipse", "centroid"))
+
+t1$plot_ordination(plot_color = "Normotenso", plot_shape = "Normotenso", plot_type = c("point", "chull", "centroid"))
+
+t1$plot_ordination(plot_color = "Normotenso", plot_shape = "Normotenso", plot_type = c("point", "chull", "centroid"), add_sample_label = "SampleID")
+
+t1$plot_ordination(plot_color = "Normotenso", plot_shape = "Normotenso", plot_type = c("point", "ellipse"))
+
+
+# PCoA based on Aitchison distance with raw data
+measure <- "bray"
+
+t2 <- trans_beta$new(dataset = meco, group = "Normotenso", measure = measure)
+t2$cal_ordination(method = "PCoA", ncomp = 2)
+write.csv(t2$res_ordination$scores, file.path(output_dir, "BetaDiv_normotenso_nonrarefy_PCoA_Bray_Score.csv"))
+# Figure 3b
+g2 <- t2$plot_ordination(plot_color = "Normotenso", plot_shape = "Normotenso", plot_type = c("point", "ellipse"))
+cowplot::save_plot(file.path(output_dir, "BetaDiv_normotenso_PCoA_Bray.png"), g2, base_aspect_ratio = 1.2, dpi = 300, base_height = 6)
+
+# NMDS based on Bray-Curtis distance with rarefied data
+measure <- "bray"
+t1 <- trans_beta$new(dataset = amplicon_16S_microtable_rarefy_5000, group = "Normotenso", measure = measure)
+t1$cal_ordination(method = "NMDS")
+
+# 'MDS1' column means the score of first coordinate axis; 'MDS2' column represents the score of second coordinate axis; Other columns are the metadata
+write.csv(t1$res_ordination$scores, file.path(output_dir, "BetaDiv_Normotenso_NMDS_Bray_Score.csv"))
+
+g1 <- t1$plot_ordination(plot_color = "Normotenso", plot_shape = "Normotenso", plot_type = c("point", "ellipse"), NMDS_stress_pos = c(1.1, 1.4), NMDS_stress_text_prefix = "Stress: ")
+cowplot::save_plot(file.path(output_dir, "BetaDiv_Normotenso_rarefy_NMDS_Bray.png"), g1, base_aspect_ratio = 1.2, dpi = 300, base_height = 6)
+
+```
+
+# Differential abundant test
+
+```{r}
+# load packages
+library(microeco)
+library(magrittr)
+library(ggtree)
+
+output_dir <- "/home/batch_correction/concatenated_method/difabundance"
+
+tmp_microtable <- clone(meco)
+
+tmp_microtable$filter_taxa(rel_abund = 0.0001)
+
+tmp_microtable$taxa_level <- "Genus"
+
+t1 <- trans_diff$new(
+  dataset = tmp_microtable,
+  method = "lefse",
+  group = "Normotenso",
+  alpha = 0.05,
+  p_adjust_method = "none",
+  lefse_subgroup = NULL
+)
+
+head(t1$res_diff)
+
+t1$plot_diff_bar(threshold = 1)
+
+t1$plot_diff_bar(use_number = 1:30, width = 0.8, group_order = c("No controlado", "Controlado", "Normotenso"))
+
+t1$res_diff[1:5, c(1, 3, 4, 6)]
+
+t1$plot_diff_cladogram(use_taxa_num = 200, use_feature_num = 50, clade_label_level = 5, group_order = c("No controlado", "Controlado", "Normotenso"))
+
+
+```
+
