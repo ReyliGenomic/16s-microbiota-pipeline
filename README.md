@@ -303,7 +303,7 @@ Taxonomic level: **Genus**
 
 ## 📖 References
 
-- Kim, J. et al. (2025). Direct Joining (DJ) method for 16S rRNA amplicon sequencing.
+- Kim, K.S., Noh, J., Kim, BS. et al. (2025). Refining microbiome diversity analysis by concatenating and integrating dual 16S rRNA amplicon reads. npj Biofilms Microbiomes 11, 57.
 - Callahan, B.J. et al. (2016). DADA2: High-resolution sample inference from Illumina amplicon data. *Nature Methods*, 13, 581–583.
 - Bolyen, E. et al. (2019). Reproducible, interactive, scalable and extensible microbiome data science using QIIME 2. *Nature Biotechnology*, 37, 852–857.
 - Quast, C. et al. (2013). The SILVA ribososomal RNA gene database project. *Nucleic Acids Research*, 41, D590–D596.
